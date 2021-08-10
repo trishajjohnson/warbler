@@ -39,17 +39,27 @@ class MessageViewTestCase(TestCase):
     def setUp(self):
         """Create test client, add sample data."""
 
-        User.query.delete()
-        Message.query.delete()
+        db.drop_all()
+        db.create_all()
 
-        self.client = app.test_client()
 
         self.testuser = User.signup(username="testuser",
                                     email="test@test.com",
                                     password="testuser",
                                     image_url=None)
+        # self.testuser_id = 8989
+        # self.testuser.id = self.testuser_id                            
+
+        self.client = app.test_client()
 
         db.session.commit()
+
+
+    def tearDown(self):
+        resp = super().tearDown()
+        db.session.rollback()
+        return resp
+
 
     def test_add_message(self):
         """Can use add a message?"""
@@ -71,3 +81,94 @@ class MessageViewTestCase(TestCase):
 
             msg = Message.query.one()
             self.assertEqual(msg.text, "Hello")
+
+
+    def test_add_message_logged_out(self):
+        """Can use add a message when logged out?"""
+
+        with self.client as c:
+
+            resp = c.post("/messages/new", data={"text": "Hello"}, follow_redirects=True)
+            html = resp.get_data(as_text=True)
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(f'<div class="alert alert-danger">Access unauthorized.</div>', html)        
+
+    def test_delete_message(self):
+        """Can you delete a message?"""
+
+        msg = Message(id=1, user_id=self.testuser.id, text="This is a test!")
+        
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id
+
+            resp2 = c.post(f"/messages/1/delete")
+            m = Message.query.get(1)
+
+            self.assertEqual(resp2.status_code, 302)
+            self.assertIsNone(m)
+
+
+    def test_delete_message_logged_out(self):
+        """Can use delete a message when logged out?"""
+
+        msg = Message(id=1, user_id=self.testuser.id, text="This is a test!")
+        
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+
+            resp = c.post("/messages/1/delete", follow_redirects=True)
+            html = resp.get_data(as_text=True)
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(f'<div class="alert alert-danger">Access unauthorized.</div>', html)
+
+            m = Message.query.get(1)
+
+            self.assertIsNotNone(m)
+
+
+    def test_show_message(self):
+        """Tests view message view function"""
+
+        msg = Message(id=1, user_id=self.testuser.id, text="This is a test!") 
+
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id
+
+            resp = c.get(f"/messages/1") 
+            html = resp.get_data(as_text=True)
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn('<p class="single-message">This is a test!</p>', html)    
+
+
+    def test_unauthorized_delete_message(self):
+        """Test whether a user can add message as other user."""
+
+        testuser2 = User.signup("testuser2", "test2@test.com", "test_password", None)
+
+        msg = Message(id=1, user_id=self.testuser.id, text="This is a test!")
+        
+        db.session.add(msg)
+        db.session.commit()
+
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = testuser2.id
+
+        resp = c.post("/messages/1/delete", follow_redirects=True)
+
+        m = Message.query.get(1)
+
+        self.assertIsNone(m) 

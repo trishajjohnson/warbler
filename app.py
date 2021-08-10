@@ -283,9 +283,7 @@ def like_unlike_msg(msg_id):
         g.user.likes = [like for like in g.user.likes if like != msg]
     
     db.session.commit()
-    print("***************")
-    print(g.user.likes)
-    print("***************")
+    
     return redirect("/")
 
 
